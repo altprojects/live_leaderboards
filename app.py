@@ -2,13 +2,14 @@ import streamlit as st
 import pandas as pd
 import requests
 import numpy as np
-from concurrent.futures import ThreadPoolExecutor
 import base64
 from io import BytesIO
 import plotly.express as px
 import plotly.graph_objs as go
 
 st.title("Share 2 Win LeaderBoards")
+
+
 @st.cache_data()
 def fetch_player_stats(player_tag):
     # Make API call for each player's detailed stats
@@ -46,6 +47,8 @@ def fetch_player_stats(player_tag):
     else:
         print(f"Error: Unable to fetch data for player {player_tag}. Status code: {player_stats_response.status_code}")
         return "", "", 0, 0, 0, 0, 0, ""
+
+
 @st.cache_data()
 def fetch_clan_donations(clan_urls):
     # Initialize an empty DataFrame to store the combined data
@@ -75,14 +78,13 @@ def fetch_clan_donations(clan_urls):
                 names.append(member.get("name", ""))
                 tags.append(member.get("tag", ""))
                 trophies.append(member.get("trophies", 0))
-                
+
                 # Extract player tag without '#'
                 player_tag = member.get("tag", "").replace("#", "")
                 player_tags.append(player_tag)
 
-            # Use ThreadPoolExecutor for concurrent requests
-            with ThreadPoolExecutor(max_workers=5) as executor:
-                results = list(executor.map(fetch_player_stats, player_tags))
+            # Fetch player stats sequentially without threading
+            results = [fetch_player_stats(player_tag) for player_tag in player_tags]
 
             # Unpack results
             name_list, tag_list, townhall_list, donated_list, received_list, last_activity_list, trophies_list, clan_tag_list = zip(*results)
@@ -105,8 +107,9 @@ def fetch_clan_donations(clan_urls):
     # Sort the combined DataFrame by donations in descending order
     df_donations = df_donations.sort_values(by="Donated", ascending=False)
     df_donations.to_excel("donations.xlsx")
-    
+
     return df_donations
+
 
 # List of clan URLs
 clan_urls = [
@@ -119,6 +122,7 @@ clan_urls = [
 
 # Call the function with the specified clan URLs and store the result in donations_df
 donations_df = fetch_clan_donations(clan_urls)
+
 
 @st.cache_data()
 def war(url):
@@ -201,7 +205,7 @@ def war(url):
         excel_file_path = "war_stats.xlsx"
         war_df = war_df.sort_values(by="Total Stars", ascending=False)
         war_df.drop_duplicates(inplace=True)
-        war_df["Missed Hits"]=war_df["Total Attacks"]-war_df["Three Stars"]-war_df["Two Stars"]-war_df["One Stars"]-war_df["Zero Stars"]
+        war_df["Missed Hits"] = war_df["Total Attacks"] - war_df["Three Stars"] - war_df["Two Stars"] - war_df["One Stars"] - war_df["Zero Stars"]
         war_df.to_excel(excel_file_path, index=False)
 
         print(f"Data has been written to: {excel_file_path}")
@@ -211,6 +215,7 @@ def war(url):
     else:
         # Print an error message if the request was not successful
         print(f"Error: {response.status_code}")
+
 
 # Specify the URL
 url = """https://api.clashking.xyz/war-stats?clans=%23UCR0Y2G&clans=%232LYP2J2L&clans=%23YVUPY0R&clans=%232Y28P8QV0&sort_field=hit_rates.hitrate&tied_only=true&descending=true&limit=200"""
@@ -224,6 +229,7 @@ df_combined = df_combined.rename(columns={"Name_x": "Name"})
 df_combined.drop_duplicates(inplace=True)
 allowed_clan_tags = ["#UCR0Y2G", "#2LYP2J2L", "#YVUPY0R", "#2Y28P8QV0", "#9UJCC2QJ"]
 df_combined = df_combined[df_combined['Clan Tag'].isin(allowed_clan_tags)]
+
 # Mapping of Clan Tags to Clan Names
 clan_tag_to_name = {
     "#UCR0Y2G": "Share 2 Win",
@@ -235,7 +241,6 @@ clan_tag_to_name = {
 
 # Add a new column "Clan Name" based on the mapping
 df_combined['Clan Name'] = df_combined['Clan Tag'].map(clan_tag_to_name)
-
 
 grouped_df = df_combined.groupby('Clan Tag')
 
@@ -267,11 +272,12 @@ def preprocess_group(group):
     denominator_activity = group['Activity'].quantile(0.75) - group['Activity'].quantile(0.25)
     group["Activity Score"] = np.where(denominator_activity != 0, 0.1 * (group["Activity"] - group['Activity'].quantile(0.25)) * 10.0 / denominator_activity, 0)
 
-    group["Missed Score"] = group["Missed Hits"]**2
+    group["Missed Score"] = group["Missed Hits"] ** 2
     # Calculate 'Season Score'
-    group["Season Score"] = group["War Score"] + group["Donation Score"] + group["Activity Score"]-group["Missed Score"]
+    group["Season Score"] = group["War Score"] + group["Donation Score"] + group["Activity Score"] - group["Missed Score"]
 
     return group
+
 
 preprocessed_dfs = [preprocess_group(group) for _, group in grouped_df]
 df_combined = pd.concat(preprocessed_dfs, ignore_index=True)
